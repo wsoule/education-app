@@ -1,6 +1,23 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
+async function checkPermission() {
+  if (!(await isPermissionGranted())) {
+    return (await requestPermission()) === 'granted'
+  }
+  return true
+}
 
+export async function enqueueNotification(title: string, body: string = 'User') {
+  if (!(await checkPermission())) {
+    return
+  }
+  sendNotification({ title, body })
+}
   let name = "";
   let greetMsg = "";
 
@@ -31,7 +48,7 @@
     <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
     <button type="submit">Greet</button>
   </form>
-
+  <button on:click={() => enqueueNotification('hello', name)}>Notif</button>
   <p>{greetMsg}</p>
 </div>
 
