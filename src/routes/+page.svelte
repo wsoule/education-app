@@ -1,29 +1,99 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from '@tauri-apps/plugin-notification';
-async function checkPermission() {
-  if (!(await isPermissionGranted())) {
-    return (await requestPermission()) === 'granted'
-  }
-  return true
-}
+  import { invoke } from '@tauri-apps/api/core';
+  import {
+    isPermissionGranted,
+    requestPermission,
+    sendNotification
+  } from '@tauri-apps/plugin-notification';
+  import { marked } from 'marked';
 
-export async function enqueueNotification(title: string, body: string = 'User') {
-  if (!(await checkPermission())) {
-    return
+  const model = 'llama3.1';
+  type Message = {
+    role: 'assistant' | 'user' | 'system';
+    content: string;
+  };
+  let messages: Message[] = [
+    {
+      role: 'system',
+      content: 'You are a helpful AI agent.'
+    }
+  ];
+
+  let loading = false;
+  async function chat(messages: Message[]): Promise<Message> {
+    const body = {
+      model: model,
+      messages: messages
+    };
+
+    const response = await fetch('http://localhost:11434/api/chat', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Failed to read response body');
+    }
+    let content = '';
+    while (true) {
+      loading = true;
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      const rawjson = new TextDecoder().decode(value);
+      const json = JSON.parse(rawjson);
+
+      if (json.done === false) {
+        content += json.message.content;
+      }
+    }
+    loading = false;
+    return { role: 'assistant', content: content };
   }
-  sendNotification({ title, body })
-}
-  let name = "";
-  let greetMsg = "";
+
+  async function askQuestion(input: string): Promise<void> {
+    return new Promise<void>(async (resolve) => {
+      if (input.trim() === '') {
+        console.log('Thankyou. Goodbye.\n');
+        console.log(
+          '=======\nHere is the message history that was used in this conversation.\n=======\n'
+        );
+        messages.forEach((message) => {
+          console.log(message);
+        });
+        resolve();
+      } else {
+        console.log('Done =', input);
+        messages = [...messages, { role: 'user', content: input }];
+        messages = [...messages, await chat(messages)];
+      }
+      console.log('done with gen');
+    });
+  }
+
+  async function checkPermission() {
+    if (!(await isPermissionGranted())) {
+      return (await requestPermission()) === 'granted';
+    }
+    return true;
+  }
+
+  export async function enqueueNotification(title: string, body: string = 'User') {
+    if (!(await checkPermission())) {
+      return;
+    }
+    sendNotification({ title, body });
+  }
+  let name = '';
+  let greetMsg = '';
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    greetMsg = await invoke("greet", { name });
+    console.log('message = ', messages);
+    await askQuestion(name);
+    greetMsg = await invoke('greet', { name });
   }
 </script>
 
@@ -48,8 +118,14 @@ export async function enqueueNotification(title: string, body: string = 'User') 
     <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
     <button type="submit">Greet</button>
   </form>
-  <button on:click={() => enqueueNotification('hello', name)}>Notif</button>
   <p>{greetMsg}</p>
+  <button on:click={() => enqueueNotification('hello', name)}>Notif</button>
+  {#each messages as message}
+    <p>{message.role}: {@html marked(message.content)}</p>
+  {/each}
+  {#if loading}
+    <p>Loading...</p>
+  {/if}
 </div>
 
 <style>
