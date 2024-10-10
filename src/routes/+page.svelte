@@ -6,6 +6,7 @@
     sendNotification
   } from '@tauri-apps/plugin-notification';
   import { marked } from 'marked';
+  import { afterUpdate, beforeUpdate } from 'svelte';
 
   const model = 'llama3.1';
   type Message = {
@@ -15,7 +16,8 @@
   let messages: Message[] = [
     {
       role: 'system',
-      content: 'You are a helpful AI agent.'
+      content:
+        'You are Professor Dumbledore. Answer as Dumbledore, the assistant, only and give guidance about Hogwarts and wizardry.'
     }
   ];
 
@@ -25,6 +27,9 @@
       model: model,
       messages: messages
     };
+
+    new Promise((resolve) => setTimeout(() => (loading = true), 200));
+    // loading = true;
 
     const response = await fetch('http://localhost:11434/api/chat', {
       method: 'POST',
@@ -37,7 +42,6 @@
     }
     let content = '';
     while (true) {
-      loading = true;
       const { done, value } = await reader.read();
       if (done) {
         break;
@@ -88,6 +92,9 @@
   }
   let name = '';
   let greetMsg = '';
+  let div: HTMLDivElement | null = null;
+  // let div = $state();
+  let autoscroll = false;
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -95,6 +102,19 @@
     await askQuestion(name);
     greetMsg = await invoke('greet', { name });
   }
+  beforeUpdate(() => {
+    if (div) {
+      const scrollableDistance = div.scrollHeight - div.offsetHeight;
+      autoscroll = div.scrollTop > scrollableDistance - 20;
+    }
+  });
+
+  afterUpdate(() => {
+    if (autoscroll && div) {
+      // div.scrollTo(0, div.scrollHeight);
+      window.scrollTo(0, div.scrollHeight);
+    }
+  });
 </script>
 
 <div class="container">
@@ -113,19 +133,21 @@
   </div>
 
   <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+  <p>{greetMsg}</p>
+  <button on:click={() => enqueueNotification('hello', name)}>Notif</button>
+  <div class="chat" bind:this={div}>
+    {#each messages as message}
+      <p>{message.role}: {@html marked(message.content)}</p>
+    {/each}
+    {#if loading}
+      <p>Loading...</p>
+    {/if}
+  </div>
 
   <form class="row" on:submit|preventDefault={greet}>
     <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
     <button type="submit">Greet</button>
   </form>
-  <p>{greetMsg}</p>
-  <button on:click={() => enqueueNotification('hello', name)}>Notif</button>
-  {#each messages as message}
-    <p>{message.role}: {@html marked(message.content)}</p>
-  {/each}
-  {#if loading}
-    <p>Loading...</p>
-  {/if}
 </div>
 
 <style>
