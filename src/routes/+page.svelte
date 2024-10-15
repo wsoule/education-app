@@ -6,33 +6,43 @@
     sendNotification
   } from '@tauri-apps/plugin-notification';
   import { marked } from 'marked';
-  import { afterUpdate, beforeUpdate } from 'svelte';
+  import { tick } from 'svelte';
 
   const model = 'llama3.1';
   type Message = {
     role: 'assistant' | 'user' | 'system';
     content: string;
   };
-  let messages: Message[] = [
+
+  let messages: Message[] = $state([
     {
       role: 'system',
       content:
         'You are Professor Dumbledore. Answer as Dumbledore, the assistant, only and give guidance about Hogwarts and wizardry.'
     }
-  ];
+  ]);
 
-  let loading = false;
-  async function chat(messages: Message[]): Promise<Message> {
+  let loading = $state(false);
+  let name = $state('');
+  let greetMsg = $state('');
+  let div: HTMLDivElement | undefined = $state();
+  let currentResponse = $state('');
+
+  const chat = async (messages: Message[]): Promise<void> => {
     const body = {
       model: model,
-      messages: messages
+      messages: messages,
+      stream: true // Enable streaming
     };
 
-    new Promise((resolve) => setTimeout(() => (loading = true), 200));
-    // loading = true;
+    loading = true;
+    currentResponse = '';
 
     const response = await fetch('http://localhost:11434/api/chat', {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(body)
     });
 
@@ -40,81 +50,92 @@
     if (!reader) {
       throw new Error('Failed to read response body');
     }
-    let content = '';
+
     while (true) {
       const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      const rawjson = new TextDecoder().decode(value);
-      const json = JSON.parse(rawjson);
+      if (done) break;
 
-      if (json.done === false) {
-        content += json.message.content;
+      const chunk = new TextDecoder().decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.trim() !== '') {
+          try {
+            const parsed = JSON.parse(line);
+            if (!parsed.done) {
+              currentResponse += parsed.message.content;
+            } else {
+              // Final message received
+              messages = [...messages, { role: 'assistant', content: currentResponse }];
+              loading = false;
+              return;
+            }
+          } catch (e) {
+            console.error('Error parsing JSON:', e);
+          }
+        }
       }
     }
-    loading = false;
-    return { role: 'assistant', content: content };
-  }
+  };
 
-  async function askQuestion(input: string): Promise<void> {
-    return new Promise<void>(async (resolve) => {
-      if (input.trim() === '') {
-        console.log('Thankyou. Goodbye.\n');
-        console.log(
-          '=======\nHere is the message history that was used in this conversation.\n=======\n'
-        );
-        messages.forEach((message) => {
-          console.log(message);
-        });
-        resolve();
-      } else {
-        console.log('Done =', input);
-        messages = [...messages, { role: 'user', content: input }];
-        messages = [...messages, await chat(messages)];
-      }
-      console.log('done with gen');
-    });
-  }
+  const askQuestion = async (input: string): Promise<void> => {
+    if (input.trim() === '') {
+      console.log('Thank you. Goodbye.\n');
+      console.log(
+        '=======\nHere is the message history that was used in this conversation.\n=======\n'
+      );
+      messages.forEach((message) => {
+        console.log(message);
+      });
+      return;
+    }
 
-  async function checkPermission() {
+    console.log('User input =', input);
+    messages = [...messages, { role: 'user', content: input }];
+    await chat(messages);
+    console.log('Response completed');
+  };
+
+  const checkPermission = async (): Promise<boolean> => {
     if (!(await isPermissionGranted())) {
       return (await requestPermission()) === 'granted';
     }
     return true;
-  }
+  };
 
-  export async function enqueueNotification(title: string, body: string = 'User') {
+  const enqueueNotification = async (title: string, body: string = 'User'): Promise<void> => {
     if (!(await checkPermission())) {
       return;
     }
     sendNotification({ title, body });
-  }
-  let name = '';
-  let greetMsg = '';
-  let div: HTMLDivElement | null = null;
-  // let div = $state();
-  let autoscroll = false;
+  };
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    console.log('message = ', messages);
+  const greet = async (): Promise<void> => {
     await askQuestion(name);
     greetMsg = await invoke('greet', { name });
-  }
-  beforeUpdate(() => {
-    if (div) {
-      const scrollableDistance = div.scrollHeight - div.offsetHeight;
-      autoscroll = div.scrollTop > scrollableDistance - 20;
+  };
+
+  $effect.pre(() => {
+    if (!div) return;
+
+    messages.length;
+    currentResponse;
+
+    if (div.offsetHeight + div.scrollTop > div.scrollHeight - 20) {
+      tick().then(() => {
+        if (div) {
+          window.scrollTo(0, div.scrollHeight);
+        }
+      });
     }
   });
 
-  afterUpdate(() => {
-    if (autoscroll && div) {
-      // div.scrollTo(0, div.scrollHeight);
-      window.scrollTo(0, div.scrollHeight);
-    }
-  });
+  const preventDefault = (fn: Function) => {
+    return function (event: Event) {
+      event.preventDefault();
+      fn.call(this, event);
+    };
+  };
 </script>
 
 <div class="container">
@@ -134,17 +155,16 @@
 
   <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
   <p>{greetMsg}</p>
-  <button on:click={() => enqueueNotification('hello', name)}>Notif</button>
+  <button onclick={() => enqueueNotification('hello', name)}>Notif</button>
   <div class="chat" bind:this={div}>
     {#each messages as message}
       <p>{message.role}: {@html marked(message.content)}</p>
     {/each}
     {#if loading}
-      <p>Loading...</p>
+      <p>Assistant: {@html marked(currentResponse)}</p>
     {/if}
   </div>
-
-  <form class="row" on:submit|preventDefault={greet}>
+  <form class="row" onsubmit={preventDefault(greet)}>
     <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
     <button type="submit">Greet</button>
   </form>
