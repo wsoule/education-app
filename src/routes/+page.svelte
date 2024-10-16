@@ -18,7 +18,7 @@
     {
       role: 'system',
       content:
-        'You are Professor Dumbledore. Answer as Dumbledore, the assistant, only and give guidance about Hogwarts and wizardry.'
+        'You are Professor Dumbledore. Answer as Dumbledore, the assistant, only and give guidance about Hogwarts and wizardry. And answer in only 3 words.'
     }
   ]);
 
@@ -66,8 +66,9 @@
               currentResponse += parsed.message.content;
             } else {
               // Final message received
-              messages = [...messages, { role: 'assistant', content: currentResponse }];
+              messages.push({ role: 'assistant', content: currentResponse });
               loading = false;
+              name = '';
               return;
             }
           } catch (e) {
@@ -139,35 +140,52 @@
 </script>
 
 <div class="container">
-  <h1>Welcome to Tauri!</h1>
+  <header>
+    <h1>Hogwarts Chat with Professor Dumbledore</h1>
+    <div class="logo-container">
+      <a href="https://vitejs.dev" target="_blank">
+        <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
+      </a>
+      <a href="https://tauri.app" target="_blank">
+        <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
+      </a>
+      <a href="https://kit.svelte.dev" target="_blank">
+        <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
+      </a>
+    </div>
+  </header>
 
-  <div class="row">
-    <a href="https://vitejs.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://kit.svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
-  </div>
+  <main>
+    <div class="chat-container" bind:this={div}>
+      {#each messages as message}
+        <div class="message {message.role}">
+          <strong>{message.role}:</strong>
+          {@html marked(message.content)}
+        </div>
+      {/each}
+      {#if loading}
+        <div class="message assistant">
+          <strong>Assistant:</strong>
+          {@html marked(currentResponse)}
+        </div>
+      {/if}
+    </div>
 
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
-  <p>{greetMsg}</p>
-  <button onclick={() => enqueueNotification('hello', name)}>Notif</button>
-  <div class="chat" bind:this={div}>
-    {#each messages as message}
-      <p>{message.role}: {@html marked(message.content)}</p>
-    {/each}
-    {#if loading}
-      <p>Assistant: {@html marked(currentResponse)}</p>
-    {/if}
-  </div>
-  <form class="row" onsubmit={preventDefault(greet)}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
+    <form class="input-form" onsubmit={preventDefault(greet)}>
+      <input id="greet-input" placeholder="Ask Professor Dumbledore..." bind:value={name} />
+      <button type="submit">Send</button>
+    </form>
+  </main>
+
+  <footer>
+    <p>{greetMsg}</p>
+    <button
+      class="notification-btn"
+      onclick={() => enqueueNotification('Hello from Hogwarts', name)}
+    >
+      Send Owl Post
+    </button>
+  </footer>
 </div>
 
 <style>
