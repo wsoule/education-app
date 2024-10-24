@@ -18,12 +18,13 @@
 		"@tauri-apps/api": ">=2.0.0",
 		"@tauri-apps/plugin-notification": "~2",
 		"@tauri-apps/plugin-shell": ">=2.0.0",
-		"marked": "^14.1.2"
+		"marked": "^14.1.2",
+		"ollama": "^0.5.9"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.1",
 		"@sveltejs/kit": "^2.0.0",
-		"@sveltejs/vite-plugin-svelte": "^3.0.0",
+		"@sveltejs/vite-plugin-svelte": "^4.0.0-next.6",
 		"@tauri-apps/cli": ">=2.0.0",
 		"prettier": "^3.3.2",
 		"prettier-plugin-svelte": "^3.2.5",

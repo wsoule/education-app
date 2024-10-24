@@ -6,9 +6,16 @@
     sendNotification
   } from '@tauri-apps/plugin-notification';
   import { marked } from 'marked';
+  import { Ollama } from 'ollama';
   import { tick } from 'svelte';
 
-  const model = 'llama3.1';
+  let selectedModel: string;
+  const ollama = new Ollama();
+  const getModels = async () => {
+    const models = await ollama.list();
+    return models;
+  };
+
   type Message = {
     role: 'assistant' | 'user' | 'system';
     content: string;
@@ -18,7 +25,8 @@
     {
       role: 'system',
       content:
-        'You are Professor Dumbledore. Answer as Dumbledore, the assistant, only and give guidance about Hogwarts and wizardry. And answer in only 3 words.'
+        'You are Professor Dumbledore. Answer as Dumbledore, the assistant, only and give guidance about Hogwarts and wizardry.'
+      // 'You are a professional speaker and programmer. Answer as as this speaker, the assistant.'
     }
   ]);
 
@@ -30,51 +38,25 @@
 
   const chat = async (messages: Message[]): Promise<void> => {
     const body = {
-      model: model,
+      model: selectedModel,
       messages: messages,
-      stream: true // Enable streaming
+      stream: true
     };
 
     loading = true;
     currentResponse = '';
-
-    const response = await fetch('http://localhost:11434/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
+    const res = await ollama.chat({
+      model: selectedModel,
+      stream: true,
+      messages
     });
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Failed to read response body');
-    }
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = new TextDecoder().decode(value);
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.trim() !== '') {
-          try {
-            const parsed = JSON.parse(line);
-            if (!parsed.done) {
-              currentResponse += parsed.message.content;
-            } else {
-              // Final message received
-              messages.push({ role: 'assistant', content: currentResponse });
-              loading = false;
-              name = '';
-              return;
-            }
-          } catch (e) {
-            console.error('Error parsing JSON:', e);
-          }
-        }
+    for await (const part of res) {
+      console.log('parte = ', part);
+      if (part.done) {
+        messages.push({ role: part.message.role as 'assistant', content: currentResponse });
+        loading = false;
+      } else {
+        currentResponse += part.message.content;
       }
     }
   };
@@ -112,7 +94,7 @@
   };
 
   const greet = async (): Promise<void> => {
-    await askQuestion(name);
+    askQuestion(name);
     greetMsg = await invoke('greet', { name });
   };
 
@@ -122,10 +104,12 @@
     messages.length;
     currentResponse;
 
-    if (div.offsetHeight + div.scrollTop > div.scrollHeight - 20) {
+    if (div.offsetHeight + div.scrollTop > div.scrollHeight - 40) {
       tick().then(() => {
         if (div) {
-          window.scrollTo(0, div.scrollHeight);
+          console.log('scrolling');
+
+          div.scrollTo(0, div.scrollHeight);
         }
       });
     }
@@ -156,25 +140,39 @@
   </header>
 
   <main>
-    <div class="chat-container" bind:this={div}>
-      {#each messages as message}
-        <div class="message {message.role}">
-          <strong>{message.role}:</strong>
-          {@html marked(message.content)}
-        </div>
-      {/each}
-      {#if loading}
-        <div class="message assistant">
-          <strong>Assistant:</strong>
-          {@html marked(currentResponse)}
-        </div>
-      {/if}
-    </div>
+    {#await getModels() then models}
+      <select bind:value={selectedModel}>
+        {#each models.models as model}
+          <option>{model.name}</option>
+        {/each}
+      </select>
+    {/await}
+    <div class="chat-box">
+      <div class="chat-container" bind:this={div}>
+        {#each messages as message}
+          <div class="message {message.role}">
+            <strong>{message.role}:</strong>
+            {@html marked(message.content)}
+          </div>
+        {/each}
+        {#if loading}
+          <div class="message assistant">
+            <strong>Assistant:</strong>
+            {@html marked(currentResponse)}
+          </div>
+        {/if}
+      </div>
 
-    <form class="input-form" onsubmit={preventDefault(greet)}>
-      <input id="greet-input" placeholder="Ask Professor Dumbledore..." bind:value={name} />
-      <button type="submit">Send</button>
-    </form>
+      <form class="input-form" onsubmit={preventDefault(greet)}>
+        <input
+          id="greet-input"
+          disabled={loading}
+          placeholder="Ask Professor Dumbledore..."
+          bind:value={name}
+        />
+        <button type="submit" disabled={loading}>Send</button>
+      </form>
+    </div>
   </main>
 
   <footer>
@@ -215,16 +213,16 @@
 
   .container {
     margin: 0;
-    padding-top: 10vh;
+    padding-top: 5vh;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    text-align: center;
+    align-items: center;
+    min-height: 100vh;
   }
 
   .logo {
-    height: 6em;
-    padding: 1.5em;
+    height: 3em;
+    padding: 0.75em;
     will-change: filter;
     transition: 0.75s;
   }
@@ -233,9 +231,10 @@
     filter: drop-shadow(0 0 2em #24c8db);
   }
 
-  .row {
+  .logo-container {
     display: flex;
     justify-content: center;
+    margin-bottom: 1em;
   }
 
   a {
@@ -250,6 +249,30 @@
 
   h1 {
     text-align: center;
+    margin-bottom: 0.5em;
+  }
+
+  .chat-box {
+    width: 80%;
+    max-width: 800px;
+    height: 70vh;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .chat-container {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 1em;
+  }
+
+  .input-form {
+    display: flex;
+    padding: 1em;
+    border-top: 1px solid #ccc;
   }
 
   input,
@@ -284,7 +307,17 @@
   }
 
   #greet-input {
+    flex-grow: 1;
     margin-right: 5px;
+  }
+
+  .message {
+    margin-bottom: 1em;
+    text-align: left;
+  }
+
+  footer {
+    margin-top: 1em;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -304,6 +337,14 @@
     }
     button:active {
       background-color: #0f0f0f69;
+    }
+
+    .chat-box {
+      border-color: #444;
+    }
+
+    .input-form {
+      border-top-color: #444;
     }
   }
 </style>
